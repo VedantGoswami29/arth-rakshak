@@ -1,0 +1,305 @@
+--- a/src/agents/retry.ts
++++ b/src/agents/retry.ts
+@@ -0,0 +1,109 @@
++/**
++ * Retry helper for transient LLM-provider failures.
++ *
++ * Groq enforces a tokens-per-minute cap (e.g. 8,000 on some tiers). A full review makes several
++ * model calls and can exceed it; the provider then answers 429 — or, when the budget runs out
++ * mid-request, a 400 `json_validate_failed` with an EMPTY `failed_generation`. Both are fixed by
++ * waiting for the token window to reset and trying again. The wait is read from the response
++ * headers (`retry-after` / `x-ratelimit-reset-tokens`) instead of guessing.
++ */
++
++type ErrLike = {
++  message?: string;
++  statusCode?: number;
++  responseHeaders?: Record<string, string>;
++  responseBody?: string;
++  cause?: unknown;
++  lastError?: unknown;
++  errors?: unknown[];
++};
++
++/** The error plus everything it wraps (AI SDK / Mastra wrap provider errors in several layers). */
++function chain(err: unknown): ErrLike[] {
++  const out: ErrLike[] = [];
++  const seen = new Set<unknown>();
++  const visit = (e: unknown, depth: number) => {
++    if (!e || typeof e !== 'object' || seen.has(e) || depth > 4) return;
++    seen.add(e);
++    const x = e as ErrLike;
++    out.push(x);
++    visit(x.cause, depth + 1);
++    visit(x.lastError, depth + 1);
++    (x.errors ?? []).forEach((i) => visit(i, depth + 1));
++  };
++  visit(err, 0);
++  return out;
++}
++
++const statusOf = (err: unknown): number | undefined => chain(err).find((e) => typeof e.statusCode === 'number')?.statusCode;
++
++function headersOf(err: unknown): Record<string, string> {
++  const raw = chain(err).find((e) => e.responseHeaders)?.responseHeaders ?? {};
++  return Object.fromEntries(Object.entries(raw).map(([k, v]) => [k.toLowerCase(), String(v)]));
++}
++
++const textOf = (err: unknown): string =>
++  chain(err)
++    .map((e) => `${e.message ?? ''} ${typeof e.responseBody === 'string' ? e.responseBody : ''}`)
++    .join(' ')
++    .toLowerCase();
++
++const TRANSIENT_TEXT =
++  /rate limit|json_validate_failed|failed to validate json|tool call validation failed|attempted to call tool|did not return structured output|overloaded|temporarily|timed? ?out/;
++
++export function isTransientLlmError(err: unknown): boolean {
++  const status = statusOf(err);
++  if (status === 429 || (status !== undefined && status >= 500)) return true;
++  return TRANSIENT_TEXT.test(textOf(err));
++}
++
++/** "48.3s", "1m2.5s", "350ms" → milliseconds. */
++export function parseDuration(s: string | undefined): number | undefined {
++  if (!s) return undefined;
++  const unit = { ms: 1, s: 1000, m: 60_000, h: 3_600_000 } as const;
++  let ms = 0;
++  let found = false;
++  for (const m of s.matchAll(/(\d+(?:\.\d+)?)(ms|s|m|h)/g)) {
++    found = true;
++    ms += parseFloat(m[1] ?? '0') * unit[m[2] as keyof typeof unit];
++  }
++  return found ? ms : undefined;
++}
++
++export function retryDelayMs(err: unknown, attempt: number, maxWaitMs: number): number {
++  const h = headersOf(err);
++  const retryAfter = h['retry-after'] !== undefined ? Number(h['retry-after']) * 1000 : NaN;
++  const remaining = Number(h['x-ratelimit-remaining-tokens']);
++  const resetTokens = parseDuration(h['x-ratelimit-reset-tokens']);
++
++  let ms: number;
++  if (Number.isFinite(retryAfter)) ms = retryAfter;
++  else if (resetTokens !== undefined && (statusOf(err) === 429 || remaining < 3000)) ms = resetTokens; // token window (nearly) empty → wait for it
++  else ms = 1500 * 2 ** attempt;
++  return Math.min(maxWaitMs, Math.max(1000, ms + 500));
++}
++
++const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
++const brief = (err: unknown) => {
++  const s = statusOf(err);
++  const m = (chain(err)[0]?.message ?? 'error').replace(/\s+/g, ' ').slice(0, 70);
++  return s ? `${s}: ${m}` : m;
++};
++
++export async function withLlmRetry<T>(
++  fn: () => Promise<T>,
++  opts: { label: string; retries?: number; maxWaitMs?: number; sleep?: (ms: number) => Promise<void> },
++): Promise<T> {
++  const retries = opts.retries ?? 2;
++  const maxWait = opts.maxWaitMs ?? 65_000;
++  for (let attempt = 0; ; attempt++) {
++    try {
++      return await fn();
++    } catch (err) {
++      if (attempt >= retries || !isTransientLlmError(err)) throw err;
++      const wait = retryDelayMs(err, attempt, maxWait);
++      console.warn(`[llm-retry] ${opts.label}: ${brief(err)} — retry ${attempt + 1}/${retries} in ${(wait / 1000).toFixed(1)}s`);
++      await (opts.sleep ?? sleep)(wait);
++    }
++  }
++}
+--- a/src/agents/runSpecialists.ts
++++ b/src/agents/runSpecialists.ts
+@@ -8,6 +8,7 @@
+   type ReportType,
+ } from '../schemas/finance.schema.js';
+ import { saveReport } from '../services/finance.service.js';
++import { withLlmRetry } from './retry.js';
+ import { budgetAgent } from './budgetAgent.js';
+ import { debtAgent } from './debtAgent.js';
+ import { savingsAgent } from './savingsAgent.js';
+@@ -29,16 +30,20 @@
+   const schema = REPORT_SCHEMAS[reportType];
+ 
+   const prompt = opts.request?.trim() || `Run the ${agent.name} analysis for the user.`;
+-  const result = await agent.generate(prompt, {
+-    structuredOutput: structuredOutputOptions(schema),
+-    providerOptions: specialistProviderOptions,
+-    requestContext,
+-  });
+-
+-  if (result.object == null) {
+-    throw new Error(`${agent.name} did not return structured output`);
+-  }
+-  const validated = schema.parse(result.object) as ReportDataMap[T];
++  // Transient provider failures (token-per-minute cap, empty/invalid JSON) are retried after the
++  // provider's own suggested wait — see retry.ts.
++  const validated = await withLlmRetry(
++    async () => {
++      const result = await agent.generate(prompt, {
++        structuredOutput: structuredOutputOptions(schema),
++        providerOptions: specialistProviderOptions,
++        requestContext,
++      });
++      if (result.object == null) throw new Error(`${agent.name} did not return structured output`);
++      return schema.parse(result.object) as ReportDataMap[T];
++    },
++    { label: agent.name },
++  );
+   return saveReport(userId, reportType, validated, runId);
+ }
+ 
+--- a/src/agents/stateInjector.ts
++++ b/src/agents/stateInjector.ts
+@@ -1,7 +1,7 @@
+ import type { RequestContext } from '@mastra/core/request-context';
+ import { tryGetUserId } from '../context/requestContext.js';
+ import { createDefaultFinancialData } from '../domain/financial.js';
+-import type { ReportType } from '../schemas/finance.schema.js';
++import type { BudgetAnalysis, ReportType, SavingsStrategy } from '../schemas/finance.schema.js';
+ import { getFinancialData, getLatestReport } from '../services/finance.service.js';
+ 
+ /**
+@@ -22,6 +22,31 @@
+   }
+ }
+ 
++/**
++ * Prior reports are injected for the NEXT agent in the pipeline. They only need the numbers and
++ * categories, not the prose (recommendation text, rationales, automation tips), so those are
++ * dropped to save tokens. FINANCIAL DATA is never trimmed.
++ */
++function compactForPrompt(key: ReportType, value: unknown): unknown {
++  if (key === 'budget_analysis') {
++    const b = value as BudgetAnalysis;
++    return {
++      total_expenses: b.total_expenses,
++      monthly_income: b.monthly_income,
++      spending_categories: b.spending_categories.map((c) => ({ category: c.category, amount: c.amount })),
++      recommendations: b.recommendations.map((r) => ({ category: r.category, potential_savings: r.potential_savings })),
++    };
++  }
++  if (key === 'savings_strategy') {
++    const s = value as SavingsStrategy;
++    return {
++      emergency_fund: s.emergency_fund,
++      recommendations: s.recommendations.map((r) => ({ category: r.category, amount: r.amount })),
++    };
++  }
++  return value;
++}
++
+ /** Render selected state slices as a readable context block (`_state_context`). */
+ async function stateContext(userId: string | undefined, includeKeys: ReportType[]): Promise<string> {
+   const fd = userId ? await getFinancialData(userId) : createDefaultFinancialData();
+@@ -30,7 +55,7 @@
+   if (userId) {
+     const reports = await Promise.all(includeKeys.map(async (k) => [k, await getLatestReport(userId, k)] as const));
+     for (const [key, value] of reports) {
+-      if (value) blocks.push(`${key.toUpperCase()}:\n${safeDumps(value)}`);
++      if (value) blocks.push(`${key.toUpperCase()}:\n${safeDumps(compactForPrompt(key, value))}`);
+     }
+   }
+   return blocks.join('\n\n');
+--- a/src/config/llm.ts
++++ b/src/config/llm.ts
+@@ -34,7 +34,11 @@
+   env.GROQ_REASONING_EFFORT_COACH ?? (supportsReasoning ? 'low' : undefined),
+ );
+ 
+-/** Specialists: payoff-plan math and structured reports → medium effort by default. */
++/**
++ * Specialists default to LOW effort too: three sequential calls per full review must fit small
++ * tokens-per-minute budgets. If you have headroom and want better payoff-plan math, set
++ * GROQ_REASONING_EFFORT_SPECIALISTS=medium.
++ */
+ export const specialistProviderOptions = providerOptionsFor(
+-  env.GROQ_REASONING_EFFORT_SPECIALISTS ?? (supportsReasoning ? 'medium' : undefined),
++  env.GROQ_REASONING_EFFORT_SPECIALISTS ?? (supportsReasoning ? 'low' : undefined),
+ );
+--- a/src/tools/finance.tools.ts
++++ b/src/tools/finance.tools.ts
+@@ -108,6 +108,21 @@
+   toPatchInput: ({ names }) => ({ remove_debt_names: names }),
+ });
+ 
++const ANALYSIS_FAILED =
++  'The analysis could not be completed right now (the AI provider is rate-limited or returned an invalid response). ' +
++  'Briefly tell the user, and suggest trying again in about a minute. Do NOT call any tool again in this turn.';
++
++/** Log the real error server-side; give the model a safe message that stops it from retrying in a loop. */
++async function guarded<T>(label: string, fn: () => Promise<T>): Promise<T> {
++  try {
++    return await fn();
++  } catch (err) {
++    if (err instanceof Error && err.message.startsWith('Unauthenticated')) throw err;
++    console.error(`[tool:${label}]`, err instanceof Error ? err.message : err);
++    throw new Error(ANALYSIS_FAILED);
++  }
++}
++
+ /**
+  * ADK `AgentTool(agent=...)` equivalents. Tool ids equal the ADK agent names so the
+  * coach's routing prompt is unchanged. The sub-agent runs with its own fresh context
+@@ -122,7 +137,7 @@
+   outputSchema: BudgetAnalysisSchema,
+   toModelOutput: (out) => asModelText(summarizeBudget(out)),
+   execute: async ({ request }, context) =>
+-    runBudgetAnalysis({ requestContext: context.requestContext, request }),
++    guarded('BudgetAnalysisAgent', () => runBudgetAnalysis({ requestContext: context.requestContext, request })),
+ });
+ 
+ export const runSavingsStrategyTool = createTool({
+@@ -133,7 +148,7 @@
+   outputSchema: SavingsStrategySchema,
+   toModelOutput: (out) => asModelText(summarizeSavings(out)),
+   execute: async ({ request }, context) =>
+-    runSavingsStrategy({ requestContext: context.requestContext, request }),
++    guarded('SavingsStrategyAgent', () => runSavingsStrategy({ requestContext: context.requestContext, request })),
+ });
+ 
+ export const runDebtReductionTool = createTool({
+@@ -143,7 +158,7 @@
+   outputSchema: DebtReductionSchema,
+   toModelOutput: (out) => asModelText(summarizeDebt(out)),
+   execute: async ({ request }, context) =>
+-    runDebtReduction({ requestContext: context.requestContext, request }),
++    guarded('DebtReductionAgent', () => runDebtReduction({ requestContext: context.requestContext, request })),
+ });
+ 
+ /** ADK `AgentTool(FullAnalysisPipeline)` → runs the Mastra workflow. */
+@@ -153,7 +168,8 @@
+   inputSchema: AgentToolInputSchema,
+   outputSchema: FullAnalysisOutputSchema,
+   toModelOutput: (out) => asModelText(summarizeFull(out)),
+-  execute: async ({ request }, context) => {
++  execute: async ({ request }, context) =>
++    guarded('FullAnalysisPipeline', async () => {
+     requireUserId(context.requestContext); // fail fast before spending tokens
+ 
+     const workflow = context.mastra?.getWorkflow('fullAnalysisPipeline') ?? fullAnalysisPipeline;
+@@ -173,7 +189,7 @@
+       throw new Error('FullAnalysisPipeline finished without all three reports');
+     }
+     return { budget_analysis, savings_strategy, debt_reduction };
+-  },
++    }),
+ });
+ 
+ /**
+--- a/.env.example
++++ b/.env.example
+@@ -16,9 +16,9 @@
+ # "native" = Groq json_schema response format (gpt-oss, etc.)
+ # "prompt" = inject the schema into the prompt (for models without json_schema support)
+ GROQ_STRUCTURED_OUTPUT=native
+-# low | medium | high (gpt-oss models only; unset = not sent). Defaults for gpt-oss: coach=low, specialists=medium.
++# low | medium | high (gpt-oss models only; unset = not sent). Defaults for gpt-oss: low for both (set specialists to medium if your tier has token headroom).
+ # GROQ_REASONING_EFFORT_COACH=low
+-# GROQ_REASONING_EFFORT_SPECIALISTS=medium
++# GROQ_REASONING_EFFORT_SPECIALISTS=low
+ 
+ # ── MongoDB (Mongoose = financial data, Mastra store = chat memory) ───────
+ MONGODB_URI=mongodb://127.0.0.1:27017
