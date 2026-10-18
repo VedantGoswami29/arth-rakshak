@@ -8,6 +8,7 @@ import { btnGhost } from './components/ui';
 import { ThemeToggle } from './components/widgets';
 import { api } from './lib/api';
 import { useAuth } from './lib/auth';
+import type { OnSaved } from './components/ProfileEditor';
 import { diffSnapshot } from './lib/diff';
 import type { Snapshot } from './lib/types';
 
@@ -35,6 +36,7 @@ function Workspace({ userId }: { userId: string }) {
   const [threadId, setThreadId] = useState<string>(() => localStorage.getItem(threadKey(userId)) ?? 'default');
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [stale, setStale] = useState(false); // profile edited after the latest analysis
   const [flash, setFlash] = useState<Set<string>>(new Set());
   const prev = useRef<Snapshot | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
@@ -42,13 +44,14 @@ function Workspace({ userId }: { userId: string }) {
 
   // Every snapshot (chat stream or manual refresh) goes through here: toast + highlight what changed.
   const applySnapshot = useCallback(
-    (s: Snapshot) => {
+    (s: Snapshot, opts?: { silent?: boolean }) => {
       const before = prev.current;
       prev.current = s;
       setSnapshot(s);
       if (!before) return; // first load: nothing "changed"
       const { keys, messages } = diffSnapshot(before, s);
-      if (keys.length === 0) return;
+      if (keys.some((k) => k !== 'profile')) setStale(false); // a fresh analysis arrived
+      if (opts?.silent || keys.length === 0) return;
       setFlash(new Set(keys));
       clearTimeout(flashTimer.current);
       flashTimer.current = setTimeout(() => setFlash(new Set()), 1700);
@@ -57,6 +60,28 @@ function Workspace({ userId }: { userId: string }) {
       );
     },
     [toast],
+  );
+
+  // Manual edits from the profile editor: update silently, remember the analyses are now stale, offer Undo.
+  const onProfileSaved = useCallback<OnSaved>(
+    (s, text, undo) => {
+      applySnapshot(s, { silent: true });
+      setStale(true);
+      toast({
+        text,
+        action: undo
+          ? {
+              label: 'Undo',
+              onClick: () => {
+                void undo()
+                  .then((u) => applySnapshot(u, { silent: true }))
+                  .catch(() => toast({ text: 'Could not undo that change' }));
+              },
+            }
+          : undefined,
+      });
+    },
+    [applySnapshot, toast],
   );
 
   const refresh = useCallback(() => {
@@ -102,6 +127,7 @@ function Workspace({ userId }: { userId: string }) {
           <AccountMenu
             onDataDeleted={() => {
               prev.current = null; // don't toast the wipe as a "change"
+              setStale(false);
               refresh();
             }}
           />
@@ -126,7 +152,7 @@ function Workspace({ userId }: { userId: string }) {
           <ChatPanel key={threadId} userId={userId} threadId={threadId} onSnapshot={applySnapshot} onBusyChange={setBusy} />
         </section>
         <aside className={`${tab === 'insights' ? 'block' : 'hidden'} min-h-0 overflow-y-auto border-slate-200 bg-slate-50 md:block md:border-l dark:border-slate-800 dark:bg-slate-950`}>
-          <InsightsPanel snapshot={snapshot} flash={flash} busy={busy} />
+          <InsightsPanel snapshot={snapshot} flash={flash} busy={busy} stale={stale} onProfileSaved={onProfileSaved} />
         </aside>
       </main>
     </div>

@@ -9,7 +9,7 @@ export const btnPrimary =
 export const btnGhost =
   'inline-flex items-center justify-center rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-medium text-slate-700 transition hover:bg-slate-100 disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800';
 
-export function Card({ title, subtitle, children, accent, flash }: { title: string; subtitle?: string; children: ReactNode; accent?: string; flash?: boolean }) {
+export function Card({ title, subtitle, children, accent, flash, action }: { title: string; subtitle?: string; children: ReactNode; accent?: string; flash?: boolean; action?: ReactNode }) {
   return (
     <section
       className={`animate-fade-up overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition-shadow hover:shadow-md dark:border-slate-800 dark:bg-slate-900 ${flash ? 'animate-flash' : ''}`}
@@ -20,6 +20,7 @@ export function Card({ title, subtitle, children, accent, flash }: { title: stri
           <h3 className="text-sm font-semibold">{title}</h3>
           {subtitle && <p className="text-xs text-slate-500 dark:text-slate-400">{subtitle}</p>}
         </div>
+        {action && <div className="ml-auto">{action}</div>}
       </header>
       <div className="space-y-4 p-4">{children}</div>
     </section>

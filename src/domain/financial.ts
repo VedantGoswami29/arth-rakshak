@@ -159,3 +159,83 @@ export function applyFinancialPatch(
 
   return { financialData: fd, changes };
 }
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Direct-edit operations (used by the UI's profile editor, not by the LLM).
+ * Same shape as `applyFinancialPatch`: pure, never mutate, return what changed.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+export class ProfileOpError extends Error {
+  constructor(
+    public readonly code: 'NOT_FOUND' | 'DUPLICATE',
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ProfileOpError';
+  }
+}
+
+const debtKey = (name: string): string => name.trim().toLowerCase();
+
+const cloneFd = (fd: FinancialData): FinancialData => ({
+  monthly_income: fd.monthly_income,
+  dependants: fd.dependants,
+  manual_expenses: { ...fd.manual_expenses },
+  debts: fd.debts.map((d) => ({ ...d })),
+});
+
+export interface DebtDraft {
+  name: string;
+  amount: number;
+  interest_rate: number;
+  min_payment?: number | null;
+}
+
+const toDebt = (d: DebtDraft): Debt => ({
+  name: d.name.trim(),
+  amount: d.amount,
+  interest_rate: d.interest_rate,
+  min_payment: d.min_payment ?? null,
+});
+
+/** Delete one expense category (as opposed to setting it to 0, which keeps the key). */
+export function removeExpenseCategory(current: FinancialData, category: string) {
+  const key = normalizeCategory(category);
+  if (!(key in current.manual_expenses)) throw new ProfileOpError('NOT_FOUND', `No "${key}" expense to delete`);
+  const fd = cloneFd(current);
+  delete fd.manual_expenses[key];
+  return { financialData: fd, changes: [`-expense ${key}`] };
+}
+
+/** Add a debt; unlike the chat tool (append-only) the UI refuses a name that already exists. */
+export function addDebtUnique(current: FinancialData, draft: DebtDraft) {
+  const debt = toDebt(draft);
+  if (current.debts.some((d) => debtKey(d.name) === debtKey(debt.name))) {
+    throw new ProfileOpError('DUPLICATE', `A debt named "${debt.name}" already exists — edit it instead`);
+  }
+  const fd = cloneFd(current);
+  fd.debts.push(debt);
+  return { financialData: fd, changes: [`+debt ${debt.name}`] };
+}
+
+/** Replace the (first) debt called `name`; renaming onto another debt's name is refused. */
+export function replaceDebt(current: FinancialData, name: string, draft: DebtDraft) {
+  const idx = current.debts.findIndex((d) => debtKey(d.name) === debtKey(name));
+  if (idx < 0) throw new ProfileOpError('NOT_FOUND', `No debt named "${name}"`);
+  const next = toDebt(draft);
+  if (current.debts.some((d, i) => i !== idx && debtKey(d.name) === debtKey(next.name))) {
+    throw new ProfileOpError('DUPLICATE', `A debt named "${next.name}" already exists`);
+  }
+  const fd = cloneFd(current);
+  fd.debts[idx] = next;
+  return { financialData: fd, changes: [`~debt ${next.name}`] };
+}
+
+/** Remove the (first) debt called `name`. */
+export function removeDebtByName(current: FinancialData, name: string) {
+  const idx = current.debts.findIndex((d) => debtKey(d.name) === debtKey(name));
+  if (idx < 0) throw new ProfileOpError('NOT_FOUND', `No debt named "${name}"`);
+  const fd = cloneFd(current);
+  fd.debts.splice(idx, 1);
+  return { financialData: fd, changes: [`-debt ${current.debts[idx]?.name ?? name}`] };
+}

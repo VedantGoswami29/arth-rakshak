@@ -6,7 +6,18 @@ import { mastra } from '../mastra.js';
 import { ChangePasswordSchema, DeleteAccountSchema } from '../schemas/auth.schema.js';
 import { ChatRequestSchema, REPORT_TYPES } from '../schemas/finance.schema.js';
 import { deleteAccount } from '../services/account.service.js';
-import { deleteUserData, getFinancialSnapshot, listReports } from '../services/finance.service.js';
+import { BasicsBodySchema, DebtBodySchema, DebtNameParam, ExpenseBodySchema, ExpenseCategoryParam } from '../schemas/profile.schema.js';
+import {
+  createDebt,
+  deleteDebt,
+  deleteUserData,
+  getFinancialSnapshot,
+  listReports,
+  removeExpense,
+  setExpense,
+  setProfileBasics,
+  updateDebt,
+} from '../services/finance.service.js';
 import { changePassword, getUserById, revokeAllTokens } from '../services/user.service.js';
 import { requireAuth, userId } from './middleware.js';
 
@@ -113,6 +124,65 @@ apiRoutes.post('/chat/stream', async (req, res) => {
 // ── Profile & reports (what the side panel renders) ───────────────────────
 apiRoutes.get('/state', async (_req, res) => {
   res.json(await getFinancialSnapshot(userId(res)));
+});
+
+// ── Direct profile editing (CRUD without going through the chat) ──────────
+// Every route returns the fresh snapshot (profile + latest reports) so the UI can just swap it in.
+// Writes go through the same service/optimistic-concurrency path the chat tools use.
+function bad(res: Response, error: z.ZodError) {
+  res.status(400).json({ error: 'Invalid request', issues: error.issues });
+}
+
+apiRoutes.patch('/profile', async (req, res) => {
+  const body = BasicsBodySchema.safeParse(req.body);
+  if (!body.success) return bad(res, body.error);
+  const uid = userId(res);
+  await setProfileBasics(uid, body.data);
+  res.json(await getFinancialSnapshot(uid));
+});
+
+apiRoutes.put('/profile/expenses/:category', async (req, res) => {
+  const category = ExpenseCategoryParam.safeParse(req.params.category);
+  const body = ExpenseBodySchema.safeParse(req.body);
+  if (!category.success) return bad(res, category.error);
+  if (!body.success) return bad(res, body.error);
+  const uid = userId(res);
+  await setExpense(uid, category.data, body.data.amount);
+  res.json(await getFinancialSnapshot(uid));
+});
+
+apiRoutes.delete('/profile/expenses/:category', async (req, res) => {
+  const category = ExpenseCategoryParam.safeParse(req.params.category);
+  if (!category.success) return bad(res, category.error);
+  const uid = userId(res);
+  await removeExpense(uid, category.data);
+  res.json(await getFinancialSnapshot(uid));
+});
+
+apiRoutes.post('/profile/debts', async (req, res) => {
+  const body = DebtBodySchema.safeParse(req.body);
+  if (!body.success) return bad(res, body.error);
+  const uid = userId(res);
+  await createDebt(uid, body.data);
+  res.status(201).json(await getFinancialSnapshot(uid));
+});
+
+apiRoutes.put('/profile/debts/:name', async (req, res) => {
+  const name = DebtNameParam.safeParse(req.params.name);
+  const body = DebtBodySchema.safeParse(req.body);
+  if (!name.success) return bad(res, name.error);
+  if (!body.success) return bad(res, body.error);
+  const uid = userId(res);
+  await updateDebt(uid, name.data, body.data);
+  res.json(await getFinancialSnapshot(uid));
+});
+
+apiRoutes.delete('/profile/debts/:name', async (req, res) => {
+  const name = DebtNameParam.safeParse(req.params.name);
+  if (!name.success) return bad(res, name.error);
+  const uid = userId(res);
+  await deleteDebt(uid, name.data);
+  res.json(await getFinancialSnapshot(uid));
 });
 
 const ReportsQuery = z.object({

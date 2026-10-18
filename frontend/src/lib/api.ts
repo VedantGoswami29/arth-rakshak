@@ -62,6 +62,15 @@ interface AuthResponse {
   token: string;
 }
 
+export interface DebtInput {
+  name: string;
+  amount: number;
+  interest_rate: number;
+  min_payment: number | null;
+}
+
+const enc = encodeURIComponent;
+
 export const api = {
   register: (email: string, password: string, name?: string) =>
     request<AuthResponse>('POST', '/auth/register', { email, password, ...(name ? { name } : {}) }),
@@ -71,6 +80,15 @@ export const api = {
   changePassword: (currentPassword: string, newPassword: string) =>
     request<{ token: string }>('POST', '/api/me/password', { currentPassword, newPassword }),
   logoutAll: () => request<{ ok: true }>('POST', '/api/me/logout-all'),
+  // Direct profile editing — every call returns the fresh snapshot (profile + latest reports).
+  profile: {
+    setBasics: (b: { monthly_income?: number; dependants?: number }) => request<Snapshot>('PATCH', '/api/profile', b),
+    setExpense: (category: string, amount: number) => request<Snapshot>('PUT', `/api/profile/expenses/${enc(category)}`, { amount }),
+    deleteExpense: (category: string) => request<Snapshot>('DELETE', `/api/profile/expenses/${enc(category)}`),
+    createDebt: (d: DebtInput) => request<Snapshot>('POST', '/api/profile/debts', d),
+    updateDebt: (name: string, d: DebtInput) => request<Snapshot>('PUT', `/api/profile/debts/${enc(name)}`, d),
+    deleteDebt: (name: string) => request<Snapshot>('DELETE', `/api/profile/debts/${enc(name)}`),
+  },
   deleteData: () => request<unknown>('DELETE', '/api/me/data'),
   deleteAccount: (password: string) => request<unknown>('DELETE', '/api/me', { password }),
 };

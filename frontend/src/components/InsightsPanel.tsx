@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { money, months } from '../lib/format';
 import { assumedMin, simulatePayoff } from '../lib/payoff';
 import type { BudgetAnalysis, DebtReduction, FinancialData, PayoffPlan, SavingsStrategy, Snapshot } from '../lib/types';
+import ProfileEditor, { type OnSaved } from './ProfileEditor';
 import { Card, Stat } from './ui';
 import { AnimatedNumber, Bar, Collapsible, Donut, Ring, colorAt } from './widgets';
 
@@ -35,16 +36,42 @@ function CashFlow({ income, spend }: { income: number; spend: number }) {
   );
 }
 
-function ProfileCard({ fd, flash }: { fd: FinancialData; flash: boolean }) {
+function ProfileCard({ fd, flash, onSaved }: { fd: FinancialData; flash: boolean; onSaved?: OnSaved }) {
+  const [editing, setEditing] = useState(false);
   const expenses = Object.entries(fd.manual_expenses).sort((a, b) => b[1] - a[1]);
   const total = expenses.reduce((s, [, v]) => s + v, 0);
   const empty = fd.monthly_income === 0 && fd.dependants === 0 && expenses.length === 0 && fd.debts.length === 0;
   const max = Math.max(...expenses.map(([, v]) => v), 1);
 
   return (
-    <Card title="Your profile" subtitle="Kept up to date from your chat" accent="bg-sky-500" flash={flash}>
-      {empty ? (
-        <Empty>Nothing yet. Tell the coach your income, expenses and debts in the chat.</Empty>
+    <Card
+      title="Your profile"
+      subtitle={editing ? 'Edit directly — changes save instantly' : 'From your chat, or edit it yourself'}
+      accent="bg-sky-500"
+      flash={flash}
+      action={
+        onSaved && (
+          <button
+            type="button"
+            onClick={() => setEditing((e) => !e)}
+            className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-medium transition hover:bg-slate-100 active:scale-95 dark:border-slate-700 dark:hover:bg-slate-800"
+          >
+            {editing ? '✓ Done' : '✎ Edit'}
+          </button>
+        )
+      }
+    >
+      {editing && onSaved ? (
+        <ProfileEditor fd={fd} onSaved={onSaved} />
+      ) : empty ? (
+        <div className="space-y-2">
+          <Empty>Nothing yet. Tell the coach in the chat — or add your income, expenses and debts yourself.</Empty>
+          {onSaved && (
+            <button type="button" onClick={() => setEditing(true)} className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white transition hover:bg-emerald-700 active:scale-95">
+              ✎ Add my data
+            </button>
+          )}
+        </div>
       ) : (
         <>
           <div className="grid grid-cols-3 gap-2">
@@ -320,7 +347,7 @@ function SkeletonCard({ label }: { label?: string }) {
 
 /* ── Panel ────────────────────────────────────────────────────────────── */
 
-export default function InsightsPanel({ snapshot, flash, busy }: { snapshot: Snapshot | null; flash?: Set<string>; busy?: boolean }) {
+export default function InsightsPanel({ snapshot, flash, busy, stale, onProfileSaved }: { snapshot: Snapshot | null; flash?: Set<string>; busy?: boolean; stale?: boolean; onProfileSaved?: OnSaved }) {
   if (!snapshot) {
     return (
       <div className="space-y-4 p-4">
@@ -336,7 +363,12 @@ export default function InsightsPanel({ snapshot, flash, busy }: { snapshot: Sna
   return (
     <div className="space-y-4 p-4">
       {busy && <SkeletonCard label="Your coach is working on this…" />}
-      <ProfileCard fd={financial_data} flash={f('profile')} />
+      {stale && !none && (
+        <p className="animate-fade-up rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
+          You changed your data after these analyses were made. Ask the coach to refresh them — e.g. “Run a full review”.
+        </p>
+      )}
+      <ProfileCard fd={financial_data} flash={f('profile')} onSaved={onProfileSaved} />
       {reports.budget_analysis && <BudgetCard r={reports.budget_analysis} flash={f('budget')} />}
       {reports.savings_strategy && <SavingsCard r={reports.savings_strategy} flash={f('savings')} />}
       {reports.debt_reduction && <DebtCard r={reports.debt_reduction} flash={f('debt')} />}

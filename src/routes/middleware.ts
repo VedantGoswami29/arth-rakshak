@@ -23,7 +23,7 @@ export async function requireAuth(req: Request, res: Response, next: NextFunctio
 
 export const userId = (res: Response): string => res.locals.userId as string;
 
-const FINANCE_STATUS = { INVALID_USER: 400, VALIDATION: 422, CONFLICT: 409, DB_UNAVAILABLE: 503, UNKNOWN: 500 } as const;
+const FINANCE_STATUS = { INVALID_USER: 400, VALIDATION: 422, NOT_FOUND: 404, CONFLICT: 409, DB_UNAVAILABLE: 503, UNKNOWN: 500 } as const;
 const USER_STATUS = {
   EMAIL_TAKEN: 409,
   INVALID_CREDENTIALS: 401,
