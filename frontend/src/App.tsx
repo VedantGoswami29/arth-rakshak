@@ -119,7 +119,7 @@ function Workspace({ userId }: { userId: string }) {
       <header className="flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-4 py-2.5 dark:border-slate-800 dark:bg-slate-900">
         <div className="flex items-center gap-2">
           <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-sm">📈</span>
-          <h1 className="text-sm font-semibold sm:text-base">Arth Rakshak</h1>
+          <h1 className="text-sm font-semibold sm:text-base">AI Financial Coach</h1>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={newChat} className={`${btnGhost} active:scale-95`}>New chat</button>

@@ -11,7 +11,7 @@ async function main() {
   await initUserModel();
 
   const server: Server = createApp().listen(env.PORT, () => {
-    console.info(`Arth Rakshak listening on http://localhost:${env.PORT}`);
+    console.info(`AI Financial Coach listening on http://localhost:${env.PORT}`);
   });
 
   let shuttingDown = false;

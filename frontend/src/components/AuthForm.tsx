@@ -30,7 +30,7 @@ export default function AuthForm() {
       <div className="w-full max-w-md">
         <div className="mb-6 text-center">
           <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-emerald-600 text-xl text-white">📈</div>
-          <h1 className="text-2xl font-semibold">Arth Rakshak</h1>
+          <h1 className="text-2xl font-semibold">AI Financial Coach</h1>
           <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">Budget, savings and debt-payoff guidance, private to you.</p>
         </div>
 

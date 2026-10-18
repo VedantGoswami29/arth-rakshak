@@ -13,10 +13,12 @@ export const model = groq(env.GROQ_MODEL);
  * ADK's `output_schema`). "native" uses Groq's json_schema response format;
  * "prompt" injects the schema into the prompt for models without json_schema.
  */
-export function structuredOutputOptions<T extends ZodType>(schema: T) {
+export function structuredOutputOptions<T extends ZodType>(schema: T, opts: { forcePrompt?: boolean } = {}) {
   return {
     schema,
-    jsonPromptInjection: env.GROQ_STRUCTURED_OUTPUT === 'prompt',
+    // `forcePrompt` is used on retries: if Groq's native json_schema mode produced an empty
+    // completion, asking for JSON through the prompt takes a different code path.
+    jsonPromptInjection: opts.forcePrompt === true || env.GROQ_STRUCTURED_OUTPUT === 'prompt',
     errorStrategy: 'strict' as const,
   };
 }
@@ -34,7 +36,11 @@ export const coachProviderOptions = providerOptionsFor(
   env.GROQ_REASONING_EFFORT_COACH ?? (supportsReasoning ? 'low' : undefined),
 );
 
-/** Specialists: payoff-plan math and structured reports → medium effort by default. */
+/**
+ * Specialists default to LOW effort too: three sequential calls per full review must fit small
+ * tokens-per-minute budgets. If you have headroom and want better payoff-plan math, set
+ * GROQ_REASONING_EFFORT_SPECIALISTS=medium.
+ */
 export const specialistProviderOptions = providerOptionsFor(
-  env.GROQ_REASONING_EFFORT_SPECIALISTS ?? (supportsReasoning ? 'medium' : undefined),
+  env.GROQ_REASONING_EFFORT_SPECIALISTS ?? (supportsReasoning ? 'low' : undefined),
 );

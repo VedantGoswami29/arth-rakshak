@@ -1,5 +1,5 @@
 {
-  "name": "arth-rakshak-web",
+  "name": "finance-coach-web",
   "private": true,
   "version": "1.0.0",
   "type": "module",
@@ -9,7 +9,6 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "arth-rakshak": "file:..",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },

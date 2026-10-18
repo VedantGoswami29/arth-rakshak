@@ -108,6 +108,21 @@ export const removeDebtsTool = profileTool({
   toPatchInput: ({ names }) => ({ remove_debt_names: names }),
 });
 
+const ANALYSIS_FAILED =
+  'The analysis could not be completed right now (the AI provider is rate-limited or returned an invalid response). ' +
+  'Briefly tell the user, and suggest trying again in about a minute. Do NOT call any tool again in this turn.';
+
+/** Log the real error server-side; give the model a safe message that stops it from retrying in a loop. */
+async function guarded<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (err instanceof Error && err.message.startsWith('Unauthenticated')) throw err;
+    console.error(`[tool:${label}]`, err instanceof Error ? err.message : err);
+    throw new Error(ANALYSIS_FAILED);
+  }
+}
+
 /**
  * ADK `AgentTool(agent=...)` equivalents. Tool ids equal the ADK agent names so the
  * coach's routing prompt is unchanged. The sub-agent runs with its own fresh context
@@ -122,7 +137,7 @@ export const runBudgetAnalysisTool = createTool({
   outputSchema: BudgetAnalysisSchema,
   toModelOutput: (out) => asModelText(summarizeBudget(out)),
   execute: async ({ request }, context) =>
-    runBudgetAnalysis({ requestContext: context.requestContext, request }),
+    guarded('BudgetAnalysisAgent', () => runBudgetAnalysis({ requestContext: context.requestContext, request })),
 });
 
 export const runSavingsStrategyTool = createTool({
@@ -133,7 +148,7 @@ export const runSavingsStrategyTool = createTool({
   outputSchema: SavingsStrategySchema,
   toModelOutput: (out) => asModelText(summarizeSavings(out)),
   execute: async ({ request }, context) =>
-    runSavingsStrategy({ requestContext: context.requestContext, request }),
+    guarded('SavingsStrategyAgent', () => runSavingsStrategy({ requestContext: context.requestContext, request })),
 });
 
 export const runDebtReductionTool = createTool({
@@ -143,7 +158,7 @@ export const runDebtReductionTool = createTool({
   outputSchema: DebtReductionSchema,
   toModelOutput: (out) => asModelText(summarizeDebt(out)),
   execute: async ({ request }, context) =>
-    runDebtReduction({ requestContext: context.requestContext, request }),
+    guarded('DebtReductionAgent', () => runDebtReduction({ requestContext: context.requestContext, request })),
 });
 
 /** ADK `AgentTool(FullAnalysisPipeline)` → runs the Mastra workflow. */
@@ -153,7 +168,8 @@ export const runFullAnalysisTool = createTool({
   inputSchema: AgentToolInputSchema,
   outputSchema: FullAnalysisOutputSchema,
   toModelOutput: (out) => asModelText(summarizeFull(out)),
-  execute: async ({ request }, context) => {
+  execute: async ({ request }, context) =>
+    guarded('FullAnalysisPipeline', async () => {
     requireUserId(context.requestContext); // fail fast before spending tokens
 
     const workflow = context.mastra?.getWorkflow('fullAnalysisPipeline') ?? fullAnalysisPipeline;
@@ -173,7 +189,7 @@ export const runFullAnalysisTool = createTool({
       throw new Error('FullAnalysisPipeline finished without all three reports');
     }
     return { budget_analysis, savings_strategy, debt_reduction };
-  },
+    }),
 });
 
 /**

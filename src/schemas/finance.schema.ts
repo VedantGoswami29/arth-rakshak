@@ -279,7 +279,7 @@ export type ChatRequest = z.infer<typeof ChatRequestSchema>;
  * ───────────────────────────────────────────────────────────────────────── */
 
 export const SetIncomeToolInputSchema = z.object({
-  amount: z.number().describe('Monthly take-home income in INR, e.g. 50000'),
+  amount: z.number().describe('Monthly take-home income in INR, e.g. 8000'),
 });
 
 export const SetDependantsToolInputSchema = z.object({
