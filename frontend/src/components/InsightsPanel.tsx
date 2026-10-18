@@ -270,7 +270,7 @@ function PayoffSimulator({ debts }: { debts: DebtReduction['debts'] }) {
       </div>
       <p className="mt-2 text-[11px] leading-snug text-slate-500">
         Estimate (highest-rate debt first, freed-up payments roll over).{' '}
-        {usedAssumption && `Where no minimum payment is known it assumes the greater of $25 or 2% of the balance (${debts.filter((d) => d.min_payment == null || d.min_payment <= 0).map((d) => `${d.name}: ${money(assumedMin(d))}`).join(', ')}). `}
+        {usedAssumption && `Where no minimum payment is known it assumes the greater of ₹500 or 2% of the balance (${debts.filter((d) => d.min_payment == null || d.min_payment <= 0).map((d) => `${d.name}: ${money(assumedMin(d))}`).join(', ')}). `}
         The plans above come from your coach.
       </p>
     </div>

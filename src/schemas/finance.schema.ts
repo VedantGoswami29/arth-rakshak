@@ -131,9 +131,9 @@ export type FinancialData = z.infer<typeof FinancialDataSchema>;
 /** Constrained DOMAIN patch for `update_financial_data` (append/merge semantics). Not sent to the LLM. */
 export const DebtInputSchema = z.object({
   name: z.string().trim().min(1).max(100).describe('Name of the debt, e.g. "Student loan"'),
-  amount: z.number().min(0).describe('Current balance in USD'),
+  amount: z.number().min(0).describe('Current balance in INR'),
   interest_rate: z.number().min(0).max(1000).describe('Annual interest rate (%)'),
-  min_payment: z.number().min(0).nullish().describe('Minimum monthly payment in USD (optional)'),
+  min_payment: z.number().min(0).nullish().describe('Minimum monthly payment in INR (optional)'),
 });
 
 export const UpdateFinancialDataInputSchema = z.object({
@@ -141,7 +141,7 @@ export const UpdateFinancialDataInputSchema = z.object({
     .number()
     .min(0)
     .nullish()
-    .describe('New monthly take-home income in USD. Replaces the existing value.'),
+    .describe('New monthly take-home income in INR. Replaces the existing value.'),
   dependants: z
     .number()
     .int()
@@ -152,7 +152,7 @@ export const UpdateFinancialDataInputSchema = z.object({
     .record(z.string(), z.number().min(0))
     .nullish()
     .describe(
-      'Partial map of expense category to monthly USD amount. Merges into manual_expenses ' +
+      'Partial map of expense category to monthly INR amount. Merges into manual_expenses ' +
         '(existing keys not in the patch are preserved). To zero a category, pass it as 0.',
     ),
   add_debts: z
@@ -181,21 +181,21 @@ export const ExpenseItemSchema = z.object({
   category: z
     .string()
     .describe('Expense category. Prefer: Housing, Utilities, Food, Transportation, Healthcare, Entertainment, Personal, Savings, Other.'),
-  amount: z.number().describe('Monthly amount in USD (0 to clear the category).'),
+  amount: z.number().describe('Monthly amount in INR (0 to clear the category).'),
 });
 
 export const DebtToolInputSchema = z.object({
   name: z.string().describe('Name of the debt, e.g. "Student loan"'),
-  amount: z.number().describe('Current balance in USD'),
+  amount: z.number().describe('Current balance in INR'),
   interest_rate: z.number().describe('Annual interest rate (%)'),
-  min_payment: z.number().nullish().describe('Minimum monthly payment in USD. Omit if unknown.'),
+  min_payment: z.number().nullish().describe('Minimum monthly payment in INR. Omit if unknown.'),
 });
 
 export const UpdateFinancialDataToolInputSchema = z.object({
   monthly_income: z
     .number()
     .nullish()
-    .describe('New monthly take-home income in USD (replaces the existing value). Omit if not changing.'),
+    .describe('New monthly take-home income in INR (replaces the existing value). Omit if not changing.'),
   dependants: z
     .number()
     .nullish()
@@ -279,7 +279,7 @@ export type ChatRequest = z.infer<typeof ChatRequestSchema>;
  * ───────────────────────────────────────────────────────────────────────── */
 
 export const SetIncomeToolInputSchema = z.object({
-  amount: z.number().describe('Monthly take-home income in USD, e.g. 8000'),
+  amount: z.number().describe('Monthly take-home income in INR, e.g. 50000'),
 });
 
 export const SetDependantsToolInputSchema = z.object({
@@ -297,9 +297,9 @@ export const AddDebtsToolInputSchema = z.object({
     .array(
       z.object({
         name: z.string().describe('Name of the debt, e.g. "Student loan"'),
-        amount: z.number().describe('Current balance in USD'),
+        amount: z.number().describe('Current balance in INR'),
         interest_rate: z.number().describe('Annual interest rate in percent, e.g. 5 for 5%'),
-        min_payment: z.number().describe('Minimum monthly payment in USD; use 0 if unknown or none'),
+        min_payment: z.number().describe('Minimum monthly payment in INR; use 0 if unknown or none'),
       }),
     )
     .describe('Debts to APPEND to the existing list'),

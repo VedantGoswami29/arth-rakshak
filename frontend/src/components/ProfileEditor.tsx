@@ -74,7 +74,7 @@ function BasicsSection({ fd, onSaved }: { fd: FinancialData; onSaved: OnSaved })
     <Section title="Income & household">
       <form onSubmit={save} className="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
         <div>
-          <label className={label} htmlFor="pe-income">Monthly income ($)</label>
+          <label className={label} htmlFor="pe-income">Monthly income (₹)</label>
           <input id="pe-income" className={inputCls} type="number" inputMode="decimal" min={0} step="any" value={income} onChange={(e) => setIncome(e.target.value)} />
         </div>
         <div>
@@ -118,7 +118,7 @@ function ExpenseRow({ category, amount, onSaved }: { category: string; amount: n
       <div className="flex items-center gap-3">
         <span className="min-w-0 flex-1 truncate text-sm">{category}</span>
         <div className="relative w-32 shrink-0">
-          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">$</span>
+          <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">₹</span>
           <input
             className={`${inputCls} pl-6 tabular-nums ${!valid ? 'border-rose-400' : ''}`}
             type="number"
@@ -203,7 +203,7 @@ function ExpensesSection({ fd, onSaved }: { fd: FinancialData; onSaved: OnSaved 
             <div>
               <label className={label} htmlFor="ex-amt">Amount per month</label>
               <div className="relative">
-                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">$</span>
+                <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-slate-400">₹</span>
                 <input id="ex-amt" className={`${inputCls} pl-6`} type="number" inputMode="decimal" min={0} step="any" placeholder="0" value={amt} onChange={(e) => setAmt(e.target.value)} />
               </div>
             </div>
@@ -256,7 +256,7 @@ function DebtForm({ initial, submitLabel, onSubmit, onCancel }: { initial?: Debt
       </div>
       <div className="grid grid-cols-3 gap-2">
         <div>
-          <label className={label} htmlFor="d-amount">Balance ($)</label>
+          <label className={label} htmlFor="d-amount">Balance (₹)</label>
           <input id="d-amount" className={inputCls} type="number" inputMode="decimal" min={0} step="any" value={amount} onChange={(e) => setAmount(e.target.value)} />
         </div>
         <div>

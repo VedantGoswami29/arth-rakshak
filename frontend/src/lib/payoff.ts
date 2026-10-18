@@ -9,9 +9,9 @@ export interface PayoffResult {
 
 const MAX_MONTHS = 600;
 
-/** Minimum payment used by the simulator: the user's value, else max($25, 2% of balance). */
+/** Minimum payment used by the simulator: the user's value, else max(₹500, 2% of balance). */
 export function assumedMin(d: Debt): number {
-  return d.min_payment != null && d.min_payment > 0 ? d.min_payment : Math.max(25, Math.round(d.amount * 0.02));
+  return d.min_payment != null && d.min_payment > 0 ? d.min_payment : Math.max(500, Math.round(d.amount * 0.02));
 }
 
 /**

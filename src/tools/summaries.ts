@@ -14,8 +14,8 @@ import type {
  * from memory on every later turn — is what burns tokens.
  */
 
-const usd = (n: number | null | undefined): string =>
-  n == null ? 'n/a' : `$${Math.round(n).toLocaleString('en-US')}`;
+const inr = (n: number | null | undefined): string =>
+  n == null ? 'n/a' : `₹${Math.round(n).toLocaleString('en-IN')}`;
 
 const clip = (s: string | null | undefined, max = 110): string =>
   !s ? '' : s.length > max ? `${s.slice(0, max - 1)}…` : s;
@@ -24,22 +24,22 @@ export function summarizeBudget(b: BudgetAnalysis): string {
   const cats = [...b.spending_categories]
     .sort((x, y) => y.amount - x.amount)
     .slice(0, 3)
-    .map((c) => `${c.category} ${usd(c.amount)}${c.percentage != null ? ` (${Math.round(c.percentage)}%)` : ''}`)
+    .map((c) => `${c.category} ${inr(c.amount)}${c.percentage != null ? ` (${Math.round(c.percentage)}%)` : ''}`)
     .join(', ');
   const recs = b.recommendations
     .slice(0, 3)
-    .map((r) => `${r.category}: ${clip(r.recommendation)}${r.potential_savings != null ? ` (save ${usd(r.potential_savings)}/mo)` : ''}`)
+    .map((r) => `${r.category}: ${clip(r.recommendation)}${r.potential_savings != null ? ` (save ${inr(r.potential_savings)}/mo)` : ''}`)
     .join(' | ');
-  return `BUDGET card saved. Expenses ${usd(b.total_expenses)}/mo vs income ${usd(b.monthly_income)}. Top: ${cats}. Tips: ${recs}`;
+  return `BUDGET card saved. Expenses ${inr(b.total_expenses)}/mo vs income ${inr(b.monthly_income)}. Top: ${cats}. Tips: ${recs}`;
 }
 
 export function summarizeSavings(s: SavingsStrategy): string {
   const ef = s.emergency_fund;
   const allocs = s.recommendations
     .slice(0, 3)
-    .map((r) => `${r.category} ${usd(r.amount)}/mo`)
+    .map((r) => `${r.category} ${inr(r.amount)}/mo`)
     .join(', ');
-  return `SAVINGS card saved. Emergency fund target ${usd(ef.recommended_amount)} (current ${usd(ef.current_amount)}; ${clip(ef.current_status, 80)}). Allocations: ${allocs}`;
+  return `SAVINGS card saved. Emergency fund target ${inr(ef.recommended_amount)} (current ${inr(ef.current_amount)}; ${clip(ef.current_status, 80)}). Allocations: ${allocs}`;
 }
 
 export function summarizeDebt(d: DebtReduction): string {
@@ -49,9 +49,9 @@ export function summarizeDebt(d: DebtReduction): string {
     .map((r) => clip(r.title, 60))
     .join(' | ');
   return (
-    `DEBT card saved. Total debt ${usd(d.total_debt)} across ${d.debts.length} debt(s). ` +
-    `Avalanche: ${a.months_to_payoff} mo, ${usd(a.total_interest)} interest. ` +
-    `Snowball: ${s.months_to_payoff} mo, ${usd(s.total_interest)} interest.` +
+    `DEBT card saved. Total debt ${inr(d.total_debt)} across ${d.debts.length} debt(s). ` +
+    `Avalanche: ${a.months_to_payoff} mo, ${inr(a.total_interest)} interest. ` +
+    `Snowball: ${s.months_to_payoff} mo, ${inr(s.total_interest)} interest.` +
     (recs ? ` Tips: ${recs}` : '')
   );
 }
@@ -66,7 +66,7 @@ export function summarizeFull(r: {
 
 export function summarizeUpdate(r: { changes: string[]; financial_data: FinancialData }): string {
   const fd = r.financial_data;
-  return `Profile updated: ${r.changes.join('; ')}. Now: income ${usd(fd.monthly_income)}, dependants ${fd.dependants}, ${Object.keys(fd.manual_expenses).length} expense categories, ${fd.debts.length} debt(s).`;
+  return `Profile updated: ${r.changes.join('; ')}. Now: income ${inr(fd.monthly_income)}, dependants ${fd.dependants}, ${Object.keys(fd.manual_expenses).length} expense categories, ${fd.debts.length} debt(s).`;
 }
 
 /** AI SDK tool-result wrapper understood by Mastra's `toModelOutput`. */
